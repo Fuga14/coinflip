@@ -15,7 +15,7 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
     uint64 subscriptionId;
     bytes32 keyHash;
     uint32 numWords = 1;
-    uint32 callbackGasLimit = 100000;
+    uint32 callbackGasLimit = 500000; // 500,000 gas
     uint16 requestConfirmations = 3;
     // past requests Id.
     uint256[] public requestIds;
@@ -171,7 +171,7 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         Game memory game = createdGames[_gameId];
         uint256 winnerNumber = getWinnerNumber(_randomValue);
         uint256 player1Choice = game.player1Choise;
-        uint256 player2Choice = game.player2Choise;
+        // uint256 player2Choice = game.player2Choise;
         if (winnerNumber == player1Choice) {
             return game.player1;
         } else {
