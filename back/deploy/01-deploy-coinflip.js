@@ -20,6 +20,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     const tx = await vrfCoordinatorMock.createSubscription();
     const txWait = await tx.wait();
     subscriptionId = txWait.events[0].args.subId;
+    // console.log(subscriptionId.toNumber());
 
     // Fund the subscription
     await vrfCoordinatorMock.fundSubscription(subscriptionId, FUND_AMOUNT);

@@ -1,22 +1,24 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
-import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
+import {VRFConsumerBaseV2} from "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 
 contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
+    VRFCoordinatorV2Interface immutable COORDINATOR;
+
     uint256 public gameId = 0;
     uint256 public constant ROI = 5;
     uint256 private roiBalance;
+    uint64 public immutable subscriptionId;
+    bytes32 public immutable keyHash;
+    uint32 public constant numWords = 1;
+    uint32 public constant callbackGasLimit = 500000; // 500,000 gas
+    uint16 public constant requestConfirmations = 3;
+    uint256 public constant MIN_BET = 100000000000000;
 
-    VRFCoordinatorV2Interface immutable COORDINATOR;
-    uint64 subscriptionId;
-    bytes32 keyHash;
-    uint32 numWords = 1;
-    uint32 callbackGasLimit = 500000; // 500,000 gas
-    uint16 requestConfirmations = 3;
     // past requests Id.
     uint256[] public requestIds;
     uint256 public lastRequestId;
@@ -26,8 +28,8 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         address player1;
         address player2;
         uint256 betAmount;
-        uint256 player1Choise;
-        uint256 player2Choise;
+        uint256 player1Choice;
+        uint256 player2Choice;
         bool isStarted;
         bool isFinished;
         address winner;
@@ -47,6 +49,7 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
     mapping(uint256 => uint256) public gamesRequests;
 
     event GameStarted(uint256 indexed gameId, address indexed player1, uint256 indexed betAmount);
+    event GameJoined(uint256 indexed gameId, address indexed player, uint256 indexed betAmount);
     event GameFinished(uint256 indexed gameId, address indexed winner, uint256 indexed betAmount);
     event RequestSent(uint256 requestId, uint32 numWords);
     event RequestFulfilled(uint256 requestId, uint256[] randomWords);
@@ -61,17 +64,17 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         keyHash = _keyHash;
     }
 
-    function createGame(uint8 _playerChoise) public payable {
+    function createGame(uint256 _playerChoice) public payable {
         require(address(msg.sender) != address(0), "Address zero can not create a game!");
-        require(msg.value != 0, "Need more than zero");
-        require(_playerChoise <= 1, "Choice can only be 1 or 0");
+        require(msg.value >= MIN_BET, "Bet amount should be more or equal to minimum bet amount");
+        require(_playerChoice <= 1, "Choice can only be 1 or 0");
 
         Game memory game;
 
         game.betAmount = msg.value;
         game.player1 = msg.sender;
         game.gameId = gameId;
-        game.player1Choise = _playerChoise;
+        game.player1Choice = _playerChoice;
         game.isStarted = true;
 
         createdGames[gameId] = game;
@@ -83,18 +86,19 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
 
     function joinGame(uint256 _gameId) public payable nonReentrant {
         Game memory game = createdGames[_gameId];
-
-        require(msg.value == game.betAmount, "Need same amount to join the game!");
         require(address(msg.sender) != address(0), "Invalid address!");
+        require(msg.value == game.betAmount, "Need same amount to join the game!");
         require(game.isStarted == true && game.isFinished == false, "Cannot join the game!");
 
         game.player2 = msg.sender;
         game.betAmount += msg.value;
-        game.player2Choise = getPlayer2Choise(game.player1Choise);
+        game.player2Choice = getPlayer2Choise(game.player1Choice);
 
         uint256 requestId = requestRandomWords();
         gamesRequests[requestId] = game.gameId;
         createdGames[_gameId] = game;
+
+        emit GameJoined(game.gameId, msg.sender, msg.value);
     }
 
     function requestRandomWords() public returns (uint256 requestId) {
@@ -139,7 +143,7 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         game.isFinished = true;
         createdGames[currentGameId] = game;
 
-        (bool success, ) = winnerAddress.call{value: userWinAmount}("");
+        (bool success, ) = payable(winnerAddress).call{value: userWinAmount}("");
         require(success, "Winner prize transfer is failed");
 
         emit GameFinished(currentGameId, winnerAddress, game.betAmount);
@@ -170,8 +174,8 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
     function getWinner(uint256 _gameId, uint256 _randomValue) internal view returns (address) {
         Game memory game = createdGames[_gameId];
         uint256 winnerNumber = getWinnerNumber(_randomValue);
-        uint256 player1Choice = game.player1Choise;
-        // uint256 player2Choice = game.player2Choise;
+        uint256 player1Choice = game.player1Choice;
+        // uint256 player2Choice = game.player2Choice;
         if (winnerNumber == player1Choice) {
             return game.player1;
         } else {
@@ -186,5 +190,25 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
     function withdraw() public onlyOwner {
         (bool success, ) = msg.sender.call{value: roiBalance}("");
         require(success, "ROI transfer failed");
+    }
+
+    function getSubscriptionId() public view onlyOwner returns (uint64) {
+        return subscriptionId;
+    }
+
+    function getKeyHash() public view onlyOwner returns (bytes32) {
+        return keyHash;
+    }
+
+    function getLastRequiestId() public view returns (uint256) {
+        return lastRequestId;
+    }
+
+    function getGame(uint256 _gameId) public view returns (Game memory) {
+        return createdGames[_gameId];
+    }
+
+    function getGameByRequestId(uint256 _requestId) public view returns (uint256) {
+        return gamesRequests[_requestId];
     }
 }
