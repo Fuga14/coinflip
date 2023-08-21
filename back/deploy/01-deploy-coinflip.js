@@ -41,7 +41,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     from: deployer,
     log: true,
     args: args,
-    waitConfirmation: waitBlockConfirmations,
+    waitConfirmation: 6,
   });
 
   // Ensure the Raffle contract is a valid consumer of the VRFCoordinatorV2Mock contract.

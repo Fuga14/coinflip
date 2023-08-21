@@ -67,6 +67,8 @@ const { developmentChains, networkConfig } = require('../helper-hardhat-config')
       createGame = async (betAmount) => {
         const playerChoice = 1;
         const tx = await CoinFlip.createGame(playerChoice, { value: betAmount });
+        // const txWait = await tx.wait();
+        // console.log(txWait);
         return tx;
       };
 
@@ -77,6 +79,19 @@ const { developmentChains, networkConfig } = require('../helper-hardhat-config')
           await expect(
             CoinFlip.connect(player2).joinGame(0, { value: player2BetAmount })
           ).to.be.revertedWith('Need same amount to join the game!');
+        });
+
+        it('Should allow to join the game', async () => {
+          await createGame(BET_AMOUNT);
+          await expect(CoinFlip.connect(player2).joinGame(0, { value: BET_AMOUNT }))
+            .to.emit(CoinFlip, 'GameJoined')
+            .withArgs(0, player2.address, BET_AMOUNT);
+
+          // await tx.wait();
+          const lastRequestId = await CoinFlip.lastRequestId();
+          console.log(lastRequestId);
+          const game = await CoinFlip.getGame(0);
+          console.log(game);
         });
       });
     });

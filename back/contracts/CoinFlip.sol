@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import {VRFCoordinatorV2Interface} from "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
-import {VRFConsumerBaseV2} from "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
+import "@chainlink/contracts/src/v0.8/VRFConsumerBaseV2.sol";
 
 contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
     VRFCoordinatorV2Interface immutable COORDINATOR;
@@ -84,7 +84,7 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         gameId += 1;
     }
 
-    function joinGame(uint256 _gameId) public payable nonReentrant {
+    function joinGame(uint256 _gameId) public payable {
         Game memory game = createdGames[_gameId];
         require(address(msg.sender) != address(0), "Invalid address!");
         require(msg.value == game.betAmount, "Need same amount to join the game!");
@@ -134,7 +134,7 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         Game memory game = createdGames[currentGameId];
 
         uint256 randomValue = _randomWords[0];
-        address winnerAddress = getWinner(_requestId, randomValue);
+        address winnerAddress = getWinner(game.gameId, randomValue);
         game.winner = winnerAddress;
 
         uint256 roiFromGame = calculateROI(game.betAmount);
@@ -143,7 +143,7 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         game.isFinished = true;
         createdGames[currentGameId] = game;
 
-        (bool success, ) = payable(winnerAddress).call{value: userWinAmount}("");
+        (bool success, ) = winnerAddress.call{value: userWinAmount}("");
         require(success, "Winner prize transfer is failed");
 
         emit GameFinished(currentGameId, winnerAddress, game.betAmount);
