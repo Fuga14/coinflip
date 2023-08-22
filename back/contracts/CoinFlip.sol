@@ -32,7 +32,9 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         uint256 player2Choice;
         bool isStarted;
         bool isFinished;
+        bool isCanceled;
         address winner;
+        uint256 winnerNumber;
     }
 
     struct RequestStatus {
@@ -51,6 +53,7 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
     event GameStarted(uint256 indexed gameId, address indexed player1, uint256 indexed betAmount);
     event GameJoined(uint256 indexed gameId, address indexed player, uint256 indexed betAmount);
     event GameFinished(uint256 indexed gameId, address indexed winner, uint256 indexed betAmount);
+    event GameCanceled(uint256 indexed gameId, address indexed creator, uint256 betAmount);
     event RequestSent(uint256 requestId, uint32 numWords);
     event RequestFulfilled(uint256 requestId, uint256[] randomWords);
 
@@ -64,31 +67,30 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         keyHash = _keyHash;
     }
 
-    function createGame(uint256 _playerChoice) public payable {
+    function createGame(uint256 _playerChoice) external payable {
         require(address(msg.sender) != address(0), "Address zero can not create a game!");
         require(msg.value >= MIN_BET, "Bet amount should be more or equal to minimum bet amount");
         require(_playerChoice <= 1, "Choice can only be 1 or 0");
-
         Game memory game;
-
         game.betAmount = msg.value;
         game.player1 = msg.sender;
         game.gameId = gameId;
         game.player1Choice = _playerChoice;
         game.isStarted = true;
-
         createdGames[gameId] = game;
 
         emit GameStarted(gameId, msg.sender, msg.value);
-
         gameId += 1;
     }
 
-    function joinGame(uint256 _gameId) public payable {
+    function joinGame(uint256 _gameId) external payable {
         Game memory game = createdGames[_gameId];
         require(address(msg.sender) != address(0), "Invalid address!");
         require(msg.value == game.betAmount, "Need same amount to join the game!");
-        require(game.isStarted == true && game.isFinished == false, "Cannot join the game!");
+        require(
+            game.isStarted == true && game.isFinished == false && game.isCanceled == false,
+            "Cannot join the game!"
+        );
 
         game.player2 = msg.sender;
         game.betAmount += msg.value;
@@ -99,6 +101,21 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         createdGames[_gameId] = game;
 
         emit GameJoined(game.gameId, msg.sender, msg.value);
+    }
+
+    function cancelGame(uint256 _gameId) external nonReentrant {
+        Game memory game = createdGames[_gameId];
+        require(msg.sender == game.player1, "Only creator of game can cancel");
+        require(game.isStarted == true && game.isFinished == false, "Game is finished");
+        require(game.isCanceled == false, "Game already canceled");
+        uint256 betAmount = game.betAmount;
+        game.betAmount = 0;
+        game.isCanceled = true;
+        createdGames[_gameId] = game;
+
+        (bool success, ) = msg.sender.call{value: betAmount}("");
+        require(success, "Cancel failed");
+        emit GameCanceled(_gameId, msg.sender, betAmount);
     }
 
     function requestRandomWords() public returns (uint256 requestId) {
@@ -134,13 +151,14 @@ contract CoinFlip is Ownable, ReentrancyGuard, VRFConsumerBaseV2 {
         Game memory game = createdGames[currentGameId];
 
         uint256 randomValue = _randomWords[0];
+        uint256 winnerNumber = getWinnerNumber(randomValue);
         address winnerAddress = getWinner(game.gameId, randomValue);
-        game.winner = winnerAddress;
-
         uint256 roiFromGame = calculateROI(game.betAmount);
         uint256 userWinAmount = game.betAmount - roiFromGame;
 
+        game.winner = winnerAddress;
         game.isFinished = true;
+        game.winnerNumber = winnerNumber;
         createdGames[currentGameId] = game;
 
         (bool success, ) = winnerAddress.call{value: userWinAmount}("");
